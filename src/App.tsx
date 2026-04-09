@@ -23,9 +23,6 @@ import {
   AlertCircle,
   Camera,
   User as UserIcon,
-  Lock,
-  Eye,
-  EyeOff,
   ArrowRight,
   Zap,
   LayoutDashboard,
@@ -53,10 +50,10 @@ import { UserManagement } from "./components/UserManagement";
 
 interface DealData {
   accountName: string;
-  listPrice: number | "";
-  salesPrice: number | "";
-  softwareMrr: number | "";
-  payMrr: number | "";
+  listPrice: string;
+  salesPrice: string;
+  softwareMrr: string;
+  payMrr: string;
   isPayMrrEnabled: boolean;
   justification: string;
   salesforceLink?: string;
@@ -66,8 +63,10 @@ interface DealData {
 
 const formatNumber = (val: number | string | undefined | null) => {
   if (val === undefined || val === null || val === "") return "";
-  const parts = val.toString().split(".");
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const str = val.toString();
+  const parts = str.split(".");
+  // Remove existing commas from the integer part before re-formatting
+  parts[0] = parts[0].replace(/,/g, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return parts.join(".");
 };
 
@@ -853,7 +852,7 @@ export default function App() {
     listPrice: "",
     salesPrice: "",
     softwareMrr: "",
-    payMrr: 120,
+    payMrr: "120",
     isPayMrrEnabled: true,
     justification: ""
   });
@@ -870,8 +869,7 @@ export default function App() {
   const [userName, setUserName] = useState<{ first: string, last: string, region?: string, funnel?: string } | null>(null);
   const [loginTimestamp, setLoginTimestamp] = useState<string | null>(null);
   const [screenshotTimestamp, setScreenshotTimestamp] = useState<string | null>(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [loginData, setLoginData] = useState({ userId: "", password: "" });
+  const [loginData, setLoginData] = useState({ userId: "" });
   const [loginError, setLoginError] = useState("");
   const appRef = useRef<HTMLDivElement>(null);
 
@@ -886,8 +884,13 @@ export default function App() {
   }, [allUsers]);
 
   const handleNumericChange = (field: keyof DealData, value: string) => {
-    const cleanValue = value.replace(/\D/g, "");
-    setDeal(prev => ({ ...prev, [field]: cleanValue === "" ? "" : Number(cleanValue) }));
+    // Remove commas (thousands separator)
+    const cleanValue = value.replace(/,/g, "");
+    
+    // Allow only digits and one period, with max 2 decimal places
+    if (cleanValue === "" || cleanValue === "." || /^\d*\.?\d{0,2}$/.test(cleanValue)) {
+      setDeal(prev => ({ ...prev, [field]: cleanValue }));
+    }
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -895,7 +898,7 @@ export default function App() {
     
     const user = allUsers.find(u => u.id.toLowerCase() === loginData.userId.toLowerCase());
 
-    if (user && user.pw === loginData.password) {
+    if (user) {
       setIsAuthenticated(true);
       setUserRole(user.role);
       setUserName({ 
@@ -907,7 +910,7 @@ export default function App() {
       setLoginTimestamp(new Date().toLocaleString());
       setLoginError("");
     } else {
-      setLoginError("Invalid User ID or Password");
+      setLoginError("Invalid User ID");
     }
   };
 
@@ -932,7 +935,7 @@ export default function App() {
     setIsAuthenticated(false);
     setUserRole(null);
     setUserName(null);
-    setLoginData({ userId: "", password: "" });
+    setLoginData({ userId: "" });
   };
 
   const resetDeal = () => {
@@ -941,7 +944,7 @@ export default function App() {
       listPrice: "",
       salesPrice: "",
       softwareMrr: "",
-      payMrr: 120,
+      payMrr: "120",
       isPayMrrEnabled: true,
       justification: "",
       salesforceLink: ""
@@ -981,10 +984,10 @@ export default function App() {
   // --- Logic ---
   
   const metrics = useMemo(() => {
-    const listPrice = deal.listPrice || 0;
-    const salesPrice = deal.salesPrice || 0;
-    const effectivePayMrr = deal.isPayMrrEnabled ? (deal.payMrr || 0) : 0;
-    const totalMrr = (deal.softwareMrr || 0) + effectivePayMrr;
+    const listPrice = Number(deal.listPrice) || 0;
+    const salesPrice = Number(deal.salesPrice) || 0;
+    const effectivePayMrr = deal.isPayMrrEnabled ? (Number(deal.payMrr) || 0) : 0;
+    const totalMrr = (Number(deal.softwareMrr) || 0) + effectivePayMrr;
 
     // Discount % = (List - Sales) / List
     const discountPercent = listPrice > 0 ? ((listPrice - salesPrice) / listPrice) * 100 : 0;
@@ -997,7 +1000,7 @@ export default function App() {
     const paybackMonths = rawPayback.toFixed(1);
 
     const hwLoss = listPrice - salesPrice;
-    const isMissingSoftwareMrr = !deal.softwareMrr || deal.softwareMrr <= 0;
+    const isMissingSoftwareMrr = !deal.softwareMrr || Number(deal.softwareMrr) <= 0;
     const isEmpty = !deal.accountName && !deal.listPrice && isMissingSoftwareMrr;
 
     let approvalLevel: "auto" | "manager" | "director" = "auto";
@@ -1058,7 +1061,7 @@ export default function App() {
           payback: metrics.paybackMonths,
           hwLoss: metrics.hwLoss,
           hardwareCost: metrics.hardwareCost,
-          totalMrr: (deal.softwareMrr || 0) + (deal.isPayMrrEnabled ? (deal.payMrr || 0) : 0),
+          totalMrr: (Number(deal.softwareMrr) || 0) + (deal.isPayMrrEnabled ? (Number(deal.payMrr) || 0) : 0),
           salesforceLink: deal.salesforceLink,
           approvalLevel: metrics.approvalLevel
         })
@@ -1114,30 +1117,6 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-bold text-zinc-900 ml-1">Password</label>
-                <div className="relative group">
-                  <input 
-                    type={showPassword ? "text" : "password"} 
-                    className="w-full !pl-14 !pr-14 bg-[#F3F4F6] border-transparent focus:bg-white focus:border-[#D1102D] focus:ring-0 transition-all rounded-xl py-4 text-zinc-900 placeholder:text-zinc-400"
-                    placeholder="Enter your password"
-                    value={loginData.password}
-                    onChange={e => setLoginData({...loginData, password: e.target.value})}
-                    required
-                  />
-                  <div className="absolute left-5 top-1/2 -translate-y-1/2 text-zinc-400 group-focus-within:text-[#D1102D] transition-colors">
-                    <Lock className="w-5 h-5" />
-                  </div>
-                  <button 
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors"
-                  >
-                    {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
-                  </button>
-                </div>
-              </div>
-
               {loginError && (
                 <motion.div 
                   initial={{ opacity: 0, x: -10 }}
@@ -1168,7 +1147,7 @@ export default function App() {
               </div>
               
               <p className="text-sm text-zinc-500 text-center">
-                Forgot your credentials? <a href="https://grid-lightspeedhq.enterprise.slack.com/archives/C0AS5HT32BT" target="_blank" rel="noopener noreferrer" className="text-[#D1102D] font-bold hover:underline">Contact your admin</a>
+                Can't find your User ID? <a href="https://grid-lightspeedhq.enterprise.slack.com/archives/C0AS5HT32BT" target="_blank" rel="noopener noreferrer" className="text-[#D1102D] font-bold hover:underline">Contact your admin</a>
               </p>
             </div>
           </div>
@@ -1284,8 +1263,7 @@ export default function App() {
                         )}
                         <input 
                           type="text" 
-                          inputMode="numeric"
-                          pattern="[0-9]*"
+                          inputMode="decimal"
                           className="w-full"
                           value={formatNumber(deal.softwareMrr)}
                           onChange={e => handleNumericChange("softwareMrr", e.target.value)}
@@ -1332,8 +1310,7 @@ export default function App() {
                         )}
                         <input 
                           type="text" 
-                          inputMode="numeric"
-                          pattern="[0-9]*"
+                          inputMode="decimal"
                           className={cn(
                             "w-full transition-opacity",
                             !deal.isPayMrrEnabled && "opacity-50 pointer-events-none"
@@ -1368,8 +1345,7 @@ export default function App() {
                         )}
                         <input 
                           type="text" 
-                          inputMode="numeric"
-                          pattern="[0-9]*"
+                          inputMode="decimal"
                           className="w-full"
                           value={formatNumber(deal.listPrice)}
                           onChange={e => handleNumericChange("listPrice", e.target.value)}
@@ -1397,8 +1373,7 @@ export default function App() {
                         )}
                         <input 
                           type="text" 
-                          inputMode="numeric"
-                          pattern="[0-9]*"
+                          inputMode="decimal"
                           className="w-full"
                           value={formatNumber(deal.salesPrice)}
                           onChange={e => handleNumericChange("salesPrice", e.target.value)}
@@ -1610,7 +1585,7 @@ export default function App() {
                             </div>
                           </motion.button>
                         )}
-                        {!isScreenshotting && deal.listPrice > 0 && (
+                        {!isScreenshotting && Number(deal.listPrice) > 0 && (
                           <button 
                             onClick={resetDeal}
                             className="px-8 py-4 rounded-2xl bg-white border-2 border-zinc-100 text-zinc-500 font-bold hover:text-zinc-900 hover:border-zinc-200 hover:bg-zinc-50 transition-all active:scale-95 flex items-center gap-2"

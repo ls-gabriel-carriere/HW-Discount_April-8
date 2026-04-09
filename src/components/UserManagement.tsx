@@ -45,7 +45,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
     first: "",
     last: "",
     role: "admin",
-    pw: "",
     region: "Benelux",
     funnel: "Inbound"
   });
@@ -62,7 +61,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
 
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUser.id || !newUser.pw) return;
+    if (!newUser.id) return;
     onAddUser(newUser);
     setIsAdding(false);
     setNewUser({
@@ -70,7 +69,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       first: "",
       last: "",
       role: "admin",
-      pw: "",
       region: "Benelux",
       funnel: "Inbound"
     });
@@ -174,7 +172,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 <tr className="bg-zinc-50 border-b border-zinc-200">
                   <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Full Name</th>
                   <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">User ID</th>
-                  <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Password</th>
                   <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Region</th>
                   <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider">Funnel</th>
                   <th className="px-6 py-4 text-xs font-bold text-zinc-500 uppercase tracking-wider text-right">Actions</th>
@@ -211,14 +208,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                           className="text-sm py-1.5 px-3 rounded-lg border-zinc-200 w-32"
                           value={newUser.id}
                           onChange={e => setNewUser({...newUser, id: e.target.value})}
-                        />
-                      </td>
-                      <td className="px-6 py-4">
-                        <input 
-                          placeholder="Pass"
-                          className="text-sm py-1.5 px-3 rounded-lg border-zinc-200 w-32"
-                          value={newUser.pw}
-                          onChange={e => setNewUser({...newUser, pw: e.target.value})}
                         />
                       </td>
                       <td className="px-6 py-4">
@@ -287,17 +276,6 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-sm font-mono text-zinc-500">{user.id}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {editingId === user.id ? (
-                          <input 
-                            className="text-sm py-1.5 px-3 rounded-lg border-zinc-200 w-32"
-                            value={user.pw}
-                            onChange={e => onUpdateUser(user.id, { pw: e.target.value })}
-                          />
-                        ) : (
-                          <span className="text-sm font-mono text-zinc-600">{user.pw}</span>
-                        )}
                       </td>
                       <td className="px-6 py-4">
                         {editingId === user.id ? (
