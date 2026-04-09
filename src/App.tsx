@@ -41,7 +41,8 @@ import {
   Trophy,
   ChevronRight,
   RotateCcw,
-  Slack
+  Slack,
+  Download
 } from "lucide-react";
 import { cn } from "./lib/utils";
 import { INITIAL_USERS } from "./constants/users";
@@ -61,6 +62,15 @@ interface DealData {
   salesforceLink?: string;
 }
 
+// --- Utils ---
+
+const formatNumber = (val: number | string | undefined | null) => {
+  if (val === undefined || val === null || val === "") return "";
+  const parts = val.toString().split(".");
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return parts.join(".");
+};
+
 const Footer = ({ isScreenshotting }: { isScreenshotting?: boolean }) => {
   if (isScreenshotting) return null;
   return (
@@ -69,7 +79,7 @@ const Footer = ({ isScreenshotting }: { isScreenshotting?: boolean }) => {
         <p className="text-zinc-500 font-semibold text-sm">Questions or feedback?</p>
       </div>
       <a 
-        href="https://grid-lightspeedhq.enterprise.slack.com/archives/C0ARM0FSD1Q" 
+        href="https://grid-lightspeedhq.enterprise.slack.com/archives/C0AS5HT32BT" 
         target="_blank" 
         rel="noopener noreferrer"
         className="px-4 py-2 rounded-lg bg-zinc-100 text-zinc-600 font-bold text-xs flex items-center gap-2 hover:bg-zinc-200 transition-all active:scale-95 group"
@@ -88,23 +98,37 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
   const [activeFunnel, setActiveFunnel] = useState<string>("All");
   const [activeUser, setActiveUser] = useState<string>("All");
   const [showWoW, setShowWoW] = useState(true);
-  const [timeRange, setTimeRange] = useState<[number, number]>([0, 11]); // Last 12 weeks
+  
+  // Date Range State
+  const [startDate, setStartDate] = useState<string>("2026-04-09");
+  const [endDate, setEndDate] = useState<string>("2026-07-02"); // 12 weeks later
+  
+  const [viewMode, setViewMode] = useState<"week" | "day">("week");
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Generate 12 weeks of mock data for each user
+  const BASE_DATE = useMemo(() => new Date(2026, 3, 9), []); // April 9, 2026
+
+  // Generate 12 weeks of empty activity data for each user
   const userActivityData = useMemo(() => {
     const data: Record<string, any[]> = {};
     allUsers.forEach(user => {
       const userWeeks = [];
-      for (let i = 1; i <= 12; i++) {
-        // Random but somewhat stable data per user
-        const seed = user.id.length + i + refreshKey;
+      for (let i = 0; i < 12; i++) {
+        const dailyData = [];
+        for (let d = 0; d < 7; d++) {
+          dailyData.push({
+            logins: 0,
+            screenshots: 0,
+            approvals: 0
+          });
+        }
+
         userWeeks.push({
-          week: `W${i}`,
-          weekNum: i - 1,
-          logins: Math.floor(Math.abs(Math.sin(seed)) * 20) + 5,
-          screenshots: Math.floor(Math.abs(Math.cos(seed)) * 10) + 2,
-          approvals: Math.floor(Math.abs(Math.sin(seed * 2)) * 5) + 1,
+          weekNum: i,
+          logins: 0,
+          screenshots: 0,
+          approvals: 0,
+          daily: dailyData,
           userId: user.id,
           userName: `${user.first} ${user.last}`,
           region: user.region,
@@ -114,61 +138,144 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
       data[user.id] = userWeeks;
     });
     return data;
-  }, [allUsers, refreshKey]);
+  }, [allUsers]);
 
   // Aggregate data based on filters
   const processedData = useMemo(() => {
-    const weeks = Array.from({ length: 12 }, (_, i) => ({
-      week: `W${i + 1}`,
-      weekNum: i,
-      logins: 0,
-      screenshots: 0,
-      approvals: 0,
-      loginsInbound: 0,
-      loginsOutbound: 0,
-      screenshotsInbound: 0,
-      screenshotsOutbound: 0,
-      approvalsInbound: 0,
-      approvalsOutbound: 0
-    }));
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    
+    // Calculate days between start and end
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
 
-    allUsers.forEach(user => {
-      if (activeUser !== "All" && user.id !== activeUser) return;
-      if (activeRegion !== "Global" && user.region !== activeRegion) return;
-      if (activeFunnel !== "All" && user.funnel !== activeFunnel) return;
-
-      const userData = userActivityData[user.id] || [];
-      userData.forEach((weekData, idx) => {
-        weeks[idx].logins += weekData.logins;
-        weeks[idx].screenshots += weekData.screenshots;
-        weeks[idx].approvals += weekData.approvals;
-        
-        if (user.funnel === "Inbound") {
-          weeks[idx].loginsInbound += weekData.logins;
-          weeks[idx].screenshotsInbound += weekData.screenshots;
-          weeks[idx].approvalsInbound += weekData.approvals;
-        } else {
-          weeks[idx].loginsOutbound += weekData.logins;
-          weeks[idx].screenshotsOutbound += weekData.screenshots;
-          weeks[idx].approvalsOutbound += weekData.approvals;
-        }
+    if (viewMode === "week") {
+      const numWeeks = Math.ceil(diffDays / 7);
+      const weeks = Array.from({ length: numWeeks }, (_, i) => {
+        const d = new Date(start);
+        d.setDate(d.getDate() + (i * 7));
+        return {
+          label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          weekNum: i,
+          logins: 0,
+          screenshots: 0,
+          approvals: 0,
+          loginsInbound: 0,
+          loginsOutbound: 0,
+          screenshotsInbound: 0,
+          screenshotsOutbound: 0,
+          approvalsInbound: 0,
+          approvalsOutbound: 0,
+          timestamp: d.getTime()
+        };
       });
-    });
 
-    return weeks.slice(timeRange[0], timeRange[1] + 1);
-  }, [allUsers, userActivityData, activeRegion, activeFunnel, activeUser, timeRange]);
+      allUsers.forEach(user => {
+        if (activeUser !== "All" && user.id !== activeUser) return;
+        if (activeRegion !== "Global" && user.region !== activeRegion) return;
+        if (activeFunnel !== "All" && user.funnel !== activeFunnel) return;
+
+        const userData = userActivityData[user.id] || [];
+        
+        userData.forEach((weekData) => {
+          const weekStart = new Date(BASE_DATE);
+          weekStart.setDate(weekStart.getDate() + (weekData.weekNum * 7));
+          
+          // Check if this week falls within our selected range
+          weeks.forEach((w, idx) => {
+            const wStart = new Date(start);
+            wStart.setDate(wStart.getDate() + (idx * 7));
+            const wEnd = new Date(wStart);
+            wEnd.setDate(wEnd.getDate() + 7);
+
+            if (weekStart >= wStart && weekStart < wEnd) {
+              w.logins += weekData.logins;
+              w.screenshots += weekData.screenshots;
+              w.approvals += weekData.approvals;
+              
+              if (user.funnel === "Inbound") {
+                w.loginsInbound += weekData.logins;
+                w.screenshotsInbound += weekData.screenshots;
+                w.approvalsInbound += weekData.approvals;
+              } else {
+                w.loginsOutbound += weekData.logins;
+                w.screenshotsOutbound += weekData.screenshots;
+                w.approvalsOutbound += weekData.approvals;
+              }
+            }
+          });
+        });
+      });
+
+      return weeks;
+    } else {
+      // Daily view
+      const days = Array.from({ length: diffDays }, (_, i) => {
+        const date = new Date(start);
+        date.setDate(date.getDate() + i);
+        return {
+          label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          timestamp: date.getTime(),
+          logins: 0,
+          screenshots: 0,
+          approvals: 0
+        };
+      });
+
+      allUsers.forEach(user => {
+        if (activeUser !== "All" && user.id !== activeUser) return;
+        if (activeRegion !== "Global" && user.region !== activeRegion) return;
+        if (activeFunnel !== "All" && user.funnel !== activeFunnel) return;
+
+        const userData = userActivityData[user.id] || [];
+        
+        userData.forEach((weekData) => {
+          weekData.daily.forEach((dayData: any, dIdx: number) => {
+            const dayDate = new Date(BASE_DATE);
+            dayDate.setDate(dayDate.getDate() + (weekData.weekNum * 7) + dIdx);
+            
+            const targetDay = days.find(d => {
+              const dDate = new Date(d.timestamp);
+              return dDate.getFullYear() === dayDate.getFullYear() &&
+                     dDate.getMonth() === dayDate.getMonth() &&
+                     dDate.getDate() === dayDate.getDate();
+            });
+
+            if (targetDay) {
+              targetDay.logins += dayData.logins;
+              targetDay.screenshots += dayData.screenshots;
+              targetDay.approvals += dayData.approvals;
+            }
+          });
+        });
+      });
+
+      return days;
+    }
+  }, [allUsers, userActivityData, activeRegion, activeFunnel, activeUser, startDate, endDate, viewMode, BASE_DATE]);
 
   // Calculate Leaderboard
   const leaderboard = useMemo(() => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
     const scores = allUsers.map(user => {
       const userData = userActivityData[user.id] || [];
-      const periodData = userData.slice(timeRange[0], timeRange[1] + 1);
       
-      const totals = periodData.reduce((acc, curr) => ({
-        logins: acc.logins + curr.logins,
-        screenshots: acc.screenshots + curr.screenshots,
-        approvals: acc.approvals + curr.approvals
-      }), { logins: 0, screenshots: 0, approvals: 0 });
+      const totals = { logins: 0, screenshots: 0, approvals: 0 };
+      
+      userData.forEach(weekData => {
+        weekData.daily.forEach((dayData: any, dIdx: number) => {
+          const dayDate = new Date(BASE_DATE);
+          dayDate.setDate(dayDate.getDate() + (weekData.weekNum * 7) + dIdx);
+          
+          if (dayDate >= start && dayDate <= end) {
+            totals.logins += dayData.logins;
+            totals.screenshots += dayData.screenshots;
+            totals.approvals += dayData.approvals;
+          }
+        });
+      });
 
       // Weighted Score: (Logins * 1) + (Screenshots * 2) + (Approvals * 2)
       const score = (totals.logins * 1) + (totals.screenshots * 2) + (totals.approvals * 2);
@@ -181,59 +288,295 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
     });
 
     return scores.sort((a, b) => b.score - a.score);
-  }, [allUsers, userActivityData, timeRange]);
+  }, [allUsers, userActivityData, startDate, endDate, BASE_DATE]);
 
   const calculateWoW = (current: number, previous: number) => {
     if (!previous) return 0;
     return ((current - previous) / previous) * 100;
   };
 
-  const currentWeek = processedData[processedData.length - 1];
-  const prevWeek = processedData[processedData.length - 2];
+  const metrics = useMemo(() => {
+    const totals = processedData.reduce((acc, curr) => ({
+      logins: acc.logins + curr.logins,
+      screenshots: acc.screenshots + curr.screenshots,
+      approvals: acc.approvals + curr.approvals
+    }), { logins: 0, screenshots: 0, approvals: 0 });
 
-  const metrics = {
-    logins: {
-      total: currentWeek?.logins || 0,
-      wow: prevWeek ? calculateWoW(currentWeek.logins, prevWeek.logins) : 0
-    },
-    screenshots: {
-      total: currentWeek?.screenshots || 0,
-      wow: prevWeek ? calculateWoW(currentWeek.screenshots, prevWeek.screenshots) : 0
-    },
-    approvals: {
-      total: currentWeek?.approvals || 0,
-      wow: prevWeek ? calculateWoW(currentWeek.approvals, prevWeek.approvals) : 0
+    // For WoW, we'll still use the last two periods if available
+    const current = processedData[processedData.length - 1];
+    const previous = processedData[processedData.length - 2];
+
+    return {
+      logins: {
+        total: totals.logins,
+        wow: previous ? calculateWoW(current.logins, previous.logins) : 0
+      },
+      screenshots: {
+        total: totals.screenshots,
+        wow: previous ? calculateWoW(current.screenshots, previous.screenshots) : 0
+      },
+      approvals: {
+        total: totals.approvals,
+        wow: previous ? calculateWoW(current.approvals, previous.approvals) : 0
+      }
+    };
+  }, [processedData]);
+
+  const handleExport = () => {
+    // Prepare data for export
+    const headers = ["Rank", "First Name", "Last Name", "Region", "Funnel", "Logins", "Screenshots", "Approvals", "Activity Score"];
+    const rows = leaderboard.map((user, idx) => [
+      idx + 1,
+      user.first,
+      user.last,
+      user.region,
+      user.funnel,
+      user.logins,
+      user.screenshots,
+      user.approvals,
+      user.score
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `manager-insights-${activeRegion}-${activeFunnel}-${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportChartData = (data: any[], title: string) => {
+    if (!data || data.length === 0) return;
+    
+    const keys = Object.keys(data[0]).filter(k => k !== 'weekNum' && k !== 'userId' && k !== 'userName' && k !== 'region' && k !== 'funnel');
+    const headers = keys.join(",");
+    const rows = data.map(item => keys.map(key => item[key]).join(","));
+    const csvContent = [headers, ...rows].join("\n");
+    
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${title.toLowerCase().replace(/\s+/g, '-')}-data.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportChartImage = async (ref: React.RefObject<HTMLDivElement>, title: string) => {
+    if (!ref.current) return;
+    try {
+      const dataUrl = await toPng(ref.current, {
+        backgroundColor: "#FFFFFF",
+        quality: 1,
+        pixelRatio: 2,
+        filter: (node) => {
+          const exclusionClasses = ['export-button', 'opacity-0'];
+          if (node instanceof HTMLElement) {
+            return !exclusionClasses.some(cls => node.classList.contains(cls));
+          }
+          return true;
+        }
+      });
+      const link = document.createElement("a");
+      link.href = dataUrl;
+      link.download = `${title.toLowerCase().replace(/\s+/g, '-')}-chart.png`;
+      link.click();
+    } catch (error) {
+      console.error("Chart export failed:", error);
     }
   };
 
-  const ChartCard = ({ title, data, dataKeys, colors }: { title: string, data: any[], dataKeys: string[], colors: string[] }) => (
-    <div className="glass p-6 rounded-3xl flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-bold flex items-center gap-2">
-          {title === "Logins" && <Users className="w-5 h-5 text-blue-500" />}
-          {title === "Screenshots" && <Camera className="w-5 h-5 text-emerald-500" />}
-          {title === "Approvals" && <FileText className="w-5 h-5 text-red-500" />}
-          {title} Trend
-        </h3>
+  const CombinedTrendChart = ({ data }: { data: any[] }) => {
+    const chartRef = useRef<HTMLDivElement>(null);
+    
+    return (
+      <div ref={chartRef} className="glass p-8 rounded-[2.5rem] mb-8 relative group/chart">
+        <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 gap-4">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <h3 className="text-xl font-bold text-zinc-900">Unified Activity Trend</h3>
+              <div className="flex bg-zinc-100 p-1 rounded-lg">
+                <button 
+                  onClick={() => setViewMode("week")}
+                  className={cn(
+                    "px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all",
+                    viewMode === "week" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
+                  )}
+                >
+                  Weekly
+                </button>
+                <button 
+                  onClick={() => setViewMode("day")}
+                  className={cn(
+                    "px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-wider transition-all",
+                    viewMode === "day" ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-400 hover:text-zinc-600"
+                  )}
+                >
+                  Daily
+                </button>
+              </div>
+            </div>
+            <p className="text-zinc-500 text-sm font-medium">Combined view of Logins, Screenshots, and Approvals</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-4 mr-4">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-blue-500" />
+                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Logins</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-emerald-500" />
+                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Screenshots</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-full bg-red-500" />
+                <span className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Approvals</span>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2 opacity-0 group-hover/chart:opacity-100 transition-opacity">
+              <button 
+                onClick={() => exportChartData(data, `Unified Activity Trend - ${viewMode}`)}
+                className="export-button p-2 rounded-lg bg-zinc-100 text-zinc-600 hover:bg-zinc-200 transition-all"
+                title="Export CSV"
+              >
+                <Download className="w-4 h-4" />
+              </button>
+              <button 
+                onClick={() => exportChartImage(chartRef, `Unified Activity Trend - ${viewMode}`)}
+                className="export-button p-2 rounded-lg bg-zinc-100 text-zinc-600 hover:bg-zinc-200 transition-all"
+                title="Export PNG"
+              >
+                <Camera className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="h-[350px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis 
+                dataKey="label" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 10, fill: "#94a3b8", fontWeight: 600 }} 
+                dy={10}
+                interval={viewMode === "day" ? 6 : 0}
+              />
+              <YAxis 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 12, fill: "#94a3b8", fontWeight: 600 }} 
+              />
+              <Tooltip 
+                contentStyle={{ 
+                  borderRadius: "20px", 
+                  border: "none", 
+                  boxShadow: "0 20px 40px -10px rgba(0, 0, 0, 0.1)",
+                  padding: "16px"
+                }}
+                itemStyle={{ fontWeight: 700, fontSize: "12px" }}
+                labelStyle={{ fontWeight: 800, color: "#18181b", marginBottom: "8px" }}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="logins" 
+                name="Logins" 
+                stroke="#3b82f6" 
+                strokeWidth={viewMode === "day" ? 2 : 4} 
+                dot={viewMode === "day" ? false : { r: 6, fill: "#3b82f6", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 8, strokeWidth: 0 }}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="screenshots" 
+                name="Screenshots" 
+                stroke="#10b981" 
+                strokeWidth={viewMode === "day" ? 2 : 4} 
+                dot={viewMode === "day" ? false : { r: 6, fill: "#10b981", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 8, strokeWidth: 0 }}
+              />
+              <Line 
+                type="monotone" 
+                dataKey="approvals" 
+                name="Approvals" 
+                stroke="#ef4444" 
+                strokeWidth={viewMode === "day" ? 2 : 4} 
+                dot={viewMode === "day" ? false : { r: 6, fill: "#ef4444", strokeWidth: 2, stroke: "#fff" }}
+                activeDot={{ r: 8, strokeWidth: 0 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
-      <div className="h-[250px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-            <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
-            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
-            <Tooltip 
-              contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)" }}
-              cursor={{ fill: "#f8fafc" }}
-            />
-            <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: "20px", fontSize: "12px" }} />
-            <Bar dataKey={dataKeys[0]} name="Inbound" fill={colors[0]} radius={[4, 4, 0, 0]} />
-            <Bar dataKey={dataKeys[1]} name="Outbound" fill={colors[1]} radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
+    );
+  };
+
+  const ChartCard = ({ title, data, dataKeys, colors }: { title: string, data: any[], dataKeys: string[], colors: string[] }) => {
+    const chartRef = useRef<HTMLDivElement>(null);
+    
+    return (
+      <div ref={chartRef} className="glass p-6 rounded-3xl flex flex-col gap-4 relative group/chart">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-bold flex items-center gap-2">
+            {title === "Logins" && <Users className="w-5 h-5 text-blue-500" />}
+            {title === "Screenshots" && <Camera className="w-5 h-5 text-emerald-500" />}
+            {title === "Approvals" && <FileText className="w-5 h-5 text-red-500" />}
+            {title} Trend
+          </h3>
+          <div className="flex items-center gap-1 opacity-0 group-hover/chart:opacity-100 transition-opacity">
+            <button 
+              onClick={() => exportChartData(data, `${title} Trend`)}
+              className="export-button p-1.5 rounded-lg bg-zinc-100 text-zinc-500 hover:bg-zinc-200 transition-all"
+              title="Export CSV"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+            <button 
+              onClick={() => exportChartImage(chartRef, `${title} Trend`)}
+              className="export-button p-1.5 rounded-lg bg-zinc-100 text-zinc-500 hover:bg-zinc-200 transition-all"
+              title="Export PNG"
+            >
+              <Camera className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+        <div className="h-[250px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+              <XAxis 
+                dataKey="label" 
+                axisLine={false} 
+                tickLine={false} 
+                tick={{ fontSize: 12, fill: "#94a3b8" }} 
+                interval={viewMode === "day" ? 6 : 0}
+              />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: "#94a3b8" }} />
+              <Tooltip 
+                contentStyle={{ borderRadius: "12px", border: "none", boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.1)" }}
+                cursor={{ fill: "#f8fafc" }}
+              />
+              <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ paddingBottom: "20px", fontSize: "12px" }} />
+              <Bar dataKey={dataKeys[0]} name="Inbound" fill={colors[0]} radius={[4, 4, 0, 0]} />
+              <Bar dataKey={dataKeys[1]} name="Outbound" fill={colors[1]} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#F4F4F4] font-sans p-4 md:p-8">
@@ -261,16 +604,28 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
               WoW Analysis {showWoW ? "ON" : "OFF"}
             </button>
 
-            {/* Time Range */}
-            <select 
-              className="bg-white border border-zinc-200 rounded-xl px-4 py-2 text-xs font-bold text-zinc-600 focus:ring-0"
-              value={timeRange[0]}
-              onChange={e => setTimeRange([Number(e.target.value), 11])}
-            >
-              <option value={0}>Last 12 Weeks</option>
-              <option value={4}>Last 8 Weeks</option>
-              <option value={8}>Last 4 Weeks</option>
-            </select>
+            {/* Date Range Filter */}
+            <div className="flex items-center gap-2 bg-white border border-zinc-200 rounded-xl px-3 py-1.5 shadow-sm">
+              <div className="flex flex-col">
+                <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest leading-none mb-1">From</span>
+                <input 
+                  type="date" 
+                  className="bg-transparent border-none p-0 text-xs font-bold text-zinc-900 focus:ring-0 h-4"
+                  value={startDate}
+                  onChange={e => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="w-px h-6 bg-zinc-100 mx-1" />
+              <div className="flex flex-col">
+                <span className="text-[8px] font-black text-zinc-400 uppercase tracking-widest leading-none mb-1">To</span>
+                <input 
+                  type="date" 
+                  className="bg-transparent border-none p-0 text-xs font-bold text-zinc-900 focus:ring-0 h-4"
+                  value={endDate}
+                  onChange={e => setEndDate(e.target.value)}
+                />
+              </div>
+            </div>
 
             <button 
               onClick={() => setRefreshKey(prev => prev + 1)}
@@ -281,17 +636,29 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
             </button>
 
             {!isScreenshotting && (
-              <motion.button 
-                whileHover={{ scale: 1.05, y: -2 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={onTakeScreenshot}
-                className="relative pl-6 pr-1.5 py-1.5 rounded-full bg-gradient-to-r from-emerald-400 to-teal-600 text-white font-black flex items-center gap-3 shadow-[0_10px_20px_-5px_rgba(16,185,129,0.3)] hover:shadow-[0_15px_30px_-5px_rgba(16,185,129,0.4)] transition-all group"
-              >
-                <span className="text-[10px] font-black uppercase tracking-wider ml-1">Snapshot</span>
-                <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center text-teal-600 shadow-sm transition-transform group-hover:translate-x-0.5">
-                  <Camera className="w-3.5 h-3.5" />
-                </div>
-              </motion.button>
+              <div className="flex items-center gap-3">
+                <motion.button 
+                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleExport}
+                  className="px-4 py-2 rounded-xl bg-white border border-zinc-200 text-zinc-900 text-xs font-bold hover:bg-zinc-50 transition-all flex items-center gap-2 shadow-sm"
+                >
+                  <Download className="w-4 h-4 text-blue-500" />
+                  Export CSV
+                </motion.button>
+
+                <motion.button 
+                  whileHover={{ scale: 1.05, y: -2 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={onTakeScreenshot}
+                  className="relative pl-6 pr-1.5 py-1.5 rounded-full bg-gradient-to-r from-emerald-400 to-teal-600 text-white font-black flex items-center gap-3 shadow-[0_10px_20px_-5px_rgba(16,185,129,0.3)] hover:shadow-[0_15px_30px_-5px_rgba(16,185,129,0.4)] transition-all group"
+                >
+                  <span className="text-[10px] font-black uppercase tracking-wider ml-1">Snapshot</span>
+                  <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center text-teal-600 shadow-sm transition-transform group-hover:translate-x-0.5">
+                    <Camera className="w-3.5 h-3.5" />
+                  </div>
+                </motion.button>
+              </div>
             )}
 
             <button 
@@ -372,7 +739,7 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
               <div className="flex-1">
                 <p className="text-xs font-bold text-zinc-400 uppercase tracking-widest">{m.label}</p>
                 <div className="flex items-baseline gap-2">
-                  <h4 className="text-2xl font-black text-zinc-900">{m.value.toLocaleString()}</h4>
+                  <h4 className="text-2xl font-black text-zinc-900">{formatNumber(m.value)}</h4>
                   {showWoW && (
                     <span className={cn(
                       "text-[10px] font-bold flex items-center gap-0.5",
@@ -387,6 +754,9 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
             </div>
           ))}
         </div>
+
+        {/* Unified Trend Graph */}
+        <CombinedTrendChart data={processedData} />
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 mb-8">
           <ChartCard 
@@ -457,12 +827,12 @@ const ManagerDashboard = ({ onLogout, onOpenUserManagement, allUsers, onTakeScre
                         </div>
                       </div>
                     </td>
-                    <td className="px-8 py-4 text-sm font-medium text-zinc-600">{user.logins}</td>
-                    <td className="px-8 py-4 text-sm font-medium text-zinc-600">{user.screenshots}</td>
-                    <td className="px-8 py-4 text-sm font-medium text-zinc-600">{user.approvals}</td>
+                    <td className="px-8 py-4 text-sm font-medium text-zinc-600">{formatNumber(user.logins)}</td>
+                    <td className="px-8 py-4 text-sm font-medium text-zinc-600">{formatNumber(user.screenshots)}</td>
+                    <td className="px-8 py-4 text-sm font-medium text-zinc-600">{formatNumber(user.approvals)}</td>
                     <td className="px-8 py-4 text-right">
                       <span className="px-4 py-1.5 rounded-lg bg-zinc-900 text-white text-sm font-black">
-                        {user.score}
+                        {formatNumber(user.score)}
                       </span>
                     </td>
                   </tr>
@@ -514,6 +884,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("hw_discount_users_v2", JSON.stringify(allUsers));
   }, [allUsers]);
+
+  const handleNumericChange = (field: keyof DealData, value: string) => {
+    const cleanValue = value.replace(/\D/g, "");
+    setDeal(prev => ({ ...prev, [field]: cleanValue === "" ? "" : Number(cleanValue) }));
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -793,7 +1168,7 @@ export default function App() {
               </div>
               
               <p className="text-sm text-zinc-500 text-center">
-                Forgot your credentials? <a href="https://grid-lightspeedhq.enterprise.slack.com/archives/C0ARM0FSD1Q" target="_blank" rel="noopener noreferrer" className="text-[#D1102D] font-bold hover:underline">Contact your admin</a>
+                Forgot your credentials? <a href="https://grid-lightspeedhq.enterprise.slack.com/archives/C0AS5HT32BT" target="_blank" rel="noopener noreferrer" className="text-[#D1102D] font-bold hover:underline">Contact your admin</a>
               </p>
             </div>
           </div>
@@ -886,7 +1261,7 @@ export default function App() {
                       />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <div className="flex items-center gap-1.5 mb-1.5">
                           <label className="mb-0 whitespace-nowrap">Software MRR</label>
@@ -908,10 +1283,12 @@ export default function App() {
                           </motion.div>
                         )}
                         <input 
-                          type="number" 
+                          type="text" 
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           className="w-full"
-                          value={deal.softwareMrr}
-                          onChange={e => setDeal({...deal, softwareMrr: e.target.value === "" ? "" : Number(e.target.value)})}
+                          value={formatNumber(deal.softwareMrr)}
+                          onChange={e => handleNumericChange("softwareMrr", e.target.value)}
                         />
                       </div>
                       <div>
@@ -954,19 +1331,21 @@ export default function App() {
                           </motion.div>
                         )}
                         <input 
-                          type="number" 
+                          type="text" 
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           className={cn(
                             "w-full transition-opacity",
                             !deal.isPayMrrEnabled && "opacity-50 pointer-events-none"
                           )}
-                          value={deal.payMrr}
-                          onChange={e => setDeal({...deal, payMrr: e.target.value === "" ? "" : Number(e.target.value)})}
+                          value={formatNumber(deal.payMrr)}
+                          onChange={e => handleNumericChange("payMrr", e.target.value)}
                           disabled={!deal.isPayMrrEnabled}
                         />
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
                         <div className="flex items-center gap-1.5 mb-1.5">
                           <label className="mb-0 whitespace-nowrap">Total Product Cost</label>
@@ -988,10 +1367,12 @@ export default function App() {
                           </motion.div>
                         )}
                         <input 
-                          type="number" 
+                          type="text" 
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           className="w-full"
-                          value={deal.listPrice}
-                          onChange={e => setDeal({...deal, listPrice: e.target.value === "" ? "" : Number(e.target.value)})}
+                          value={formatNumber(deal.listPrice)}
+                          onChange={e => handleNumericChange("listPrice", e.target.value)}
                         />
                       </div>
                       <div>
@@ -1015,10 +1396,12 @@ export default function App() {
                           </motion.div>
                         )}
                         <input 
-                          type="number" 
+                          type="text" 
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           className="w-full"
-                          value={deal.salesPrice}
-                          onChange={e => setDeal({...deal, salesPrice: e.target.value === "" ? "" : Number(e.target.value)})}
+                          value={formatNumber(deal.salesPrice)}
+                          onChange={e => handleNumericChange("salesPrice", e.target.value)}
                         />
                       </div>
                     </div>
@@ -1102,7 +1485,7 @@ export default function App() {
                           : "border-orange-500/20 bg-orange-500/10"
                       )}
                     >
-                      <div className="flex items-start gap-6">
+                      <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
                         <div className={cn(
                           "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
                           metrics.approvalLevel === "director" ? "bg-red-500/20" : "bg-orange-500/20"
@@ -1112,16 +1495,16 @@ export default function App() {
                             metrics.approvalLevel === "director" ? "text-red-500" : "text-orange-500"
                           )} />
                         </div>
-                        <div className="flex-1">
+                        <div className="flex-1 text-center sm:text-left">
                           <h3 className="text-xl font-bold mb-1">
                             {metrics.approvalLevel === "director" ? "VP/MD Approval Required" : "Manager Approval Required"}
                           </h3>
-                          <div className="flex flex-col mb-4">
+                          <div className="flex flex-col items-center sm:items-start mb-4">
                             <div className={cn(
                               "text-4xl font-black leading-none",
                               metrics.approvalLevel === "director" ? "text-red-500" : "text-orange-500"
                             )}>
-                              {metrics.paybackMonths} mo
+                              {formatNumber(metrics.paybackMonths)} mo
                             </div>
                             <div className={cn(
                               "text-[10px] font-bold uppercase tracking-widest mt-1",
@@ -1204,7 +1587,7 @@ export default function App() {
                       <h3 className="text-2xl font-bold mb-1">Hardware auto-approved</h3>
                       <div className="flex flex-col items-center mb-6">
                         <div className="text-6xl font-black text-emerald-500 leading-none">
-                          {metrics.paybackMonths} mo
+                          {formatNumber(metrics.paybackMonths)} mo
                         </div>
                         <div className="text-sm font-bold uppercase tracking-widest text-emerald-500/60 mt-2">
                           HW CAC Payback
